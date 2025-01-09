@@ -8,8 +8,12 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
 # Load data
-data = pd.read_csv('crypto_data.csv', parse_dates=['timestamp'])
-dates = data['timestamp']  # Use timestamp instead of date
+data = pd.read_csv('data/merged_data.csv', parse_dates=['Date'])
+dates = data['Date']  # Use Date instead of timestamp
+
+# Ensure 'eth_usdt_close' column exists
+if 'eth_usdt_close' not in data.columns:
+    raise ValueError("The 'eth_usdt_close' column is not present in the dataset.")
 
 # Convert all columns to numeric, dropping any non-numeric columns
 numeric_data = data.apply(pd.to_numeric, errors='coerce')
@@ -22,16 +26,17 @@ scaled_data = scaler.fit_transform(numeric_data)
 # Update sequence creation and model parameters
 seq_length = 100  # Looking back 100 days
 pred_length = 10  # Predicting next 10 days
+eth_usdt_close_idx = data.columns.get_loc('eth_usdt_close')
 
-def create_sequences(data, seq_length, pred_length):
+def create_sequences(data, seq_length, pred_length, target_idx):
     X, y = [], []
     for i in range(len(data) - seq_length - pred_length + 1):
         X.append(data[i:(i + seq_length)])  # 100 days of data
-        y.append(data[i + seq_length:i + seq_length + pred_length, 3])  # Next 10 days eth_close
+        y.append(data[i + seq_length:i + seq_length + pred_length, target_idx])  # Next 10 days eth_usdt_close
     return np.array(X), np.array(y)
 
 # Create sequences
-X, y = create_sequences(scaled_data, seq_length, pred_length)
+X, y = create_sequences(scaled_data, seq_length, pred_length, eth_usdt_close_idx)
 
 # Split into train and test sets (80-20)
 train_size = int(len(X) * 0.8)
@@ -66,19 +71,24 @@ y_pred = model.predict(X_test)
 # Inverse transform predictions
 # Create empty array matching original data shape
 pred_data = np.zeros((y_pred.shape[0], y_pred.shape[1], numeric_data.shape[1]))
-pred_data[:, :, 3] = y_pred  # Fill eth_close column
-y_pred_rescaled = scaler.inverse_transform(pred_data[:, 0, :])[:, 3]
+pred_data[:, :, eth_usdt_close_idx] = y_pred  # Fill eth_usdt_close column
+y_pred_rescaled = scaler.inverse_transform(pred_data.reshape(-1, numeric_data.shape[1]))[:, eth_usdt_close_idx].reshape(y_pred.shape)
+
+# Inverse transform actual values
+actual_data = np.zeros((y_test.shape[0], y_test.shape[1], numeric_data.shape[1]))
+actual_data[:, :, eth_usdt_close_idx] = y_test
+y_test_rescaled = scaler.inverse_transform(actual_data.reshape(-1, numeric_data.shape[1]))[:, eth_usdt_close_idx].reshape(y_test.shape)
 
 # Plot results
 plt.figure(figsize=(12, 6))
-plt.plot(y_test[0], label='Actual')
-plt.plot(y_pred[0], label='Predicted')
+plt.plot(y_test_rescaled[0], label='Actual')
+plt.plot(y_pred_rescaled[0], label='Predicted')
 plt.legend()
 plt.title('ETH Price Prediction (10 days)')
 plt.show()
 
 # Print evaluation metrics
-mse = mean_squared_error(y_test[0], y_pred[0])
+mse = mean_squared_error(y_test_rescaled[0], y_pred_rescaled[0])
 print(f'MSE: {mse}')
 
 # Function to make future predictions
@@ -92,15 +102,15 @@ future_prices = predict_future(model, last_sequence)
 
 # Inverse transform predictions
 future_data = np.zeros((1, pred_length, numeric_data.shape[1]))
-future_data[0, :, 3] = future_prices
-future_prices_rescaled = scaler.inverse_transform(future_data[0])[:, 3]
+future_data[0, :, eth_usdt_close_idx] = future_prices
+future_prices_rescaled = scaler.inverse_transform(future_data[0])[:, eth_usdt_close_idx]
 
 print("\nPredicted ETH prices for next 10 days:")
 for i, price in enumerate(future_prices_rescaled, 1):
     print(f"Day {i}: ${price:.2f}")
 
 # Get last 100 days of real prices and dates for visualization
-real_prices = numeric_data.iloc[-seq_length:, 3].values  # Column 3 is eth_close
+real_prices = numeric_data.iloc[-seq_length:, eth_usdt_close_idx].values  # Column 'eth_usdt_close'
 historical_dates = dates[-seq_length:]
 
 # Create future dates
@@ -109,7 +119,7 @@ future_dates = [last_date + timedelta(days=x) for x in range(1, pred_length + 1)
 
 # Update visualization
 plt.figure(figsize=(15, 7))
-plt.plot(historical_dates[-100:], real_prices[-100:],
+plt.plot(historical_dates, real_prices,
          color='blue', label='Historical (100 days)', linewidth=2)
 plt.plot(future_dates, future_prices_rescaled,
          color='red', label='Predicted (10 days)', linewidth=2, linestyle='--')
