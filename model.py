@@ -26,7 +26,7 @@ scaled_data = scaler.fit_transform(numeric_data)
 # Update sequence creation and model parameters
 seq_length = 100  # Looking back 100 days
 pred_length = 10  # Predicting next 10 days
-eth_usdt_close_idx = data.columns.get_loc('eth_usdt_close')
+eth_usdt_close_idx = numeric_data.columns.get_loc('eth_usdt_close')
 
 def create_sequences(data, seq_length, pred_length, target_idx):
     X, y = [], []
@@ -60,7 +60,7 @@ model.compile(optimizer='adam', loss='mse')
 history = model.fit(
     X_train, y_train,
     epochs=50,
-    batch_size=32,
+    batch_size=1024,
     validation_split=0.1,
     verbose=1
 )
